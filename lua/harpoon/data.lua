@@ -50,10 +50,13 @@ end
 
 --- @alias HarpoonRawData {[string]: {[string]: string[]}}
 
+local ACTIVE_SUB_PROJECT_KEY = "__harpoon_active_sub_project"
+
 --- @class HarpoonData
 --- @field _data HarpoonRawData
 --- @field has_error boolean
 --- @field config HarpoonConfig
+--- @field _deleted_keys string[]
 local Data = {}
 
 -- 1. load the data
@@ -96,6 +99,7 @@ function Data:new(config)
         _data = data,
         has_error = not ok,
         config = config,
+        _deleted_keys = {},
     }, self)
 end
 
@@ -135,6 +139,27 @@ function Data:update(key, name, values)
     self._data[key][name] = values
 end
 
+--- Returns all top-level keys in the data file.
+---@return string[]
+function Data:keys()
+    if self.has_error then
+        return {}
+    end
+
+    return vim.tbl_keys(self._data)
+end
+
+--- Removes a top-level key (and all its lists) from the data.
+---@param key string
+function Data:clear_key(key)
+    if self.has_error then
+        return
+    end
+
+    self._data[key] = nil
+    table.insert(self._deleted_keys, key)
+end
+
 function Data:sync()
     if self.has_error then
         return
@@ -145,6 +170,12 @@ function Data:sync()
         error("Harpoon: unable to sync data, error reading data file")
     end
 
+    -- Apply deletions first
+    for _, key in ipairs(self._deleted_keys) do
+        data[key] = nil
+    end
+    self._deleted_keys = {}
+
     for k, v in pairs(self._data) do
         data[k] = v
     end
@@ -153,6 +184,7 @@ function Data:sync()
 end
 
 M.Data = Data
+M.ACTIVE_SUB_PROJECT_KEY = ACTIVE_SUB_PROJECT_KEY
 M.test = {
     set_fullpath = function(fp)
         fullpath = fp

@@ -14,6 +14,7 @@ local HarpoonGroup = require("harpoon.autocmd")
 ---@field logger HarpoonLog
 ---@field lists {[string]: {[string]: HarpoonList}}
 ---@field hooks_setup boolean
+---@field active_sub_project string?
 local Harpoon = {}
 
 Harpoon.__index = Harpoon
@@ -47,10 +48,22 @@ function Harpoon:new()
         _extensions = Extensions.extensions,
         lists = {},
         hooks_setup = false,
+        active_sub_project = nil,
     }, self)
     sync_on_change(harpoon)
 
     return harpoon
+end
+
+--- Returns the current data lookup key, scoped by sub-project if one is active.
+--- When no sub-project is active, returns the project key (e.g. CWD).
+--- When a sub-project is active, returns the sub-project name.
+---@return string
+function Harpoon:get_current_key()
+    if self.active_sub_project then
+        return self.active_sub_project
+    end
+    return self.config.settings.key()
 end
 
 ---@param name string?
@@ -58,7 +71,7 @@ end
 function Harpoon:list(name)
     name = name or Config.DEFAULT_LIST
 
-    local key = self.config.settings.key()
+    local key = self:get_current_key()
     local lists = self.lists[key]
 
     if not lists then
@@ -85,7 +98,7 @@ end
 
 ---@param cb fun(list: HarpoonList, config: HarpoonPartialConfigItem, name: string)
 function Harpoon:_for_each_list(cb)
-    local key = self.config.settings.key()
+    local key = self:get_current_key()
     local lists = self.lists[key]
     if not lists then
         return
@@ -98,7 +111,7 @@ function Harpoon:_for_each_list(cb)
 end
 
 function Harpoon:sync()
-    local key = self.config.settings.key()
+    local key = self:get_current_key()
     self:_for_each_list(function(list, _, list_name)
         if list.config.encode == false then
             return
@@ -132,6 +145,97 @@ function Harpoon:__debug_reset()
     require("plenary.reload").reload_module("harpoon")
 end
 
+--- Persists the active sub-project name into the default project key's metadata.
+--- When name is nil, removes the metadata entry (returning to default).
+---@param name string?
+function Harpoon:_save_active_sub_project(name)
+    local default_key = self.config.settings.key()
+    if name then
+        self.data:update(default_key, Data.ACTIVE_SUB_PROJECT_KEY, name)
+    else
+        -- Clear the metadata entry
+        local raw = self.data:data(default_key, Data.ACTIVE_SUB_PROJECT_KEY)
+        if raw and raw ~= "" then
+            self.data:update(default_key, Data.ACTIVE_SUB_PROJECT_KEY, vim.NIL)
+        end
+    end
+    self.data:sync()
+end
+
+--- Restores the active sub-project from persisted metadata.
+--- Called during setup() to resume the last session's context.
+function Harpoon:_restore_active_sub_project()
+    local default_key = self.config.settings.key()
+    local stored = self.data:data(default_key, Data.ACTIVE_SUB_PROJECT_KEY)
+    if stored and type(stored) == "string" and stored ~= "" then
+        self.active_sub_project = stored
+        Log:log("sub_project#restore", "restored active sub-project:", stored)
+    else
+        self.active_sub_project = nil
+    end
+end
+
+--- Switch the active sub-project context. All subsequent list() calls will
+--- operate on the sub-project's data. Pass nil to return to the default
+--- project context.
+---@param name string?
+function Harpoon:set_sub_project(name)
+    -- Sync current context before switching
+    self:sync()
+
+    self.active_sub_project = name
+    self:_save_active_sub_project(name)
+
+    Log:log("sub_project#set", "switched to:", name or "<default>")
+end
+
+--- Returns a list of all sub-project names for the current project.
+--- Does not include the default project key.
+---@return string[]
+function Harpoon:find_sub_projects()
+    local default_key = self.config.settings.key()
+    local all_keys = self.data:keys()
+    local sub_projects = {}
+
+    for _, key in ipairs(all_keys) do
+        if key ~= default_key then
+            table.insert(sub_projects, key)
+        end
+    end
+
+    return sub_projects
+end
+
+--- Deletes a sub-project and all of its lists from the data store.
+--- If the deleted sub-project is the currently active one, reverts to
+--- the default project context.
+---@param name string
+function Harpoon:delete_sub_project(name)
+    if not name or name == "" then
+        error("Harpoon: cannot delete sub-project with empty name")
+    end
+
+    local default_key = self.config.settings.key()
+    if name == default_key then
+        error("Harpoon: cannot delete the default project")
+    end
+
+    -- Clear in-memory list cache for this sub-project
+    self.lists[name] = nil
+
+    -- Clear from data store and persist
+    self.data:clear_key(name)
+    self.data:sync()
+
+    -- If we just deleted the active sub-project, revert to default
+    if self.active_sub_project == name then
+        self.active_sub_project = nil
+        self:_save_active_sub_project(nil)
+    end
+
+    Log:log("sub_project#delete", "deleted sub-project:", name)
+end
+
 local the_harpoon = Harpoon:new()
 
 ---@param self Harpoon
@@ -149,6 +253,9 @@ function Harpoon.setup(self, partial_config)
     self.data = Data.Data:new(self.config)
     self.ui:configure(self.config.settings)
     self._extensions:emit(Extensions.event_names.SETUP_CALLED, self.config)
+
+    -- Restore the active sub-project from the persisted data
+    self:_restore_active_sub_project()
 
     ---TODO: should we go through every seen list and update its config?
 
