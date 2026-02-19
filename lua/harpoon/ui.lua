@@ -24,6 +24,9 @@ end
 ---@field bufnr number
 ---@field settings HarpoonSettings
 ---@field active_list HarpoonList
+---@field _menu_type "list"|"sub_project"|nil
+---@field _sub_project_harpoon Harpoon?
+---@field _sub_project_original string[]?
 local HarpoonUI = {}
 
 ---@param list HarpoonList
@@ -42,6 +45,9 @@ function HarpoonUI:new(settings)
         bufnr = nil,
         active_list = nil,
         settings = settings,
+        _menu_type = nil,
+        _sub_project_harpoon = nil,
+        _sub_project_original = nil,
     }, self)
 end
 
@@ -72,6 +78,9 @@ function HarpoonUI:close_menu()
     self.active_list = nil
     self.win_id = nil
     self.bufnr = nil
+    self._menu_type = nil
+    self._sub_project_harpoon = nil
+    self._sub_project_original = nil
 
     self.closing = false
 end
@@ -79,8 +88,9 @@ end
 --- TODO: Toggle_opts should be where we get extra style and border options
 --- and we should create a nice minimum window
 ---@param toggle_opts HarpoonToggleOptions
+---@param buffer_callbacks? HarpoonBufferCallbacks
 ---@return number,number
-function HarpoonUI:_create_window(toggle_opts)
+function HarpoonUI:_create_window(toggle_opts, buffer_callbacks)
     local win = vim.api.nvim_list_uis()
 
     local width = toggle_opts.ui_fallback_width
@@ -118,7 +128,7 @@ function HarpoonUI:_create_window(toggle_opts)
         error("Failed to create window")
     end
 
-    Buffer.setup_autocmds_and_keymaps(bufnr)
+    Buffer.setup_autocmds_and_keymaps(bufnr, buffer_callbacks)
 
     self.win_id = win_id
     vim.api.nvim_set_option_value("number", true, {
@@ -150,6 +160,7 @@ function HarpoonUI:toggle_quick_menu(list, opts)
     self.win_id = win_id
     self.bufnr = bufnr
     self.active_list = list
+    self._menu_type = "list"
 
     local contents = self.active_list:display()
 
@@ -205,6 +216,110 @@ end
 ---@param settings HarpoonSettings
 function HarpoonUI:configure(settings)
     self.settings = settings
+end
+
+--- Opens (or closes) the sub-project picker floating window.
+--- Behaves like toggle_quick_menu but displays sub-project names instead of
+--- file paths. The user can add/delete/rename sub-projects by editing lines,
+--- and press <CR> to switch to a sub-project.
+---@param harpoon_instance Harpoon
+---@param opts? HarpoonToggleOptions
+function HarpoonUI:toggle_sub_project_menu(harpoon_instance, opts)
+    opts = vim.tbl_extend("force", {
+        ui_fallback_width = 69,
+        ui_width_ratio = 0.62569,
+    }, opts or {})
+    opts.title = opts.title or "Sub-Projects"
+
+    if harpoon_instance == nil or self.win_id ~= nil then
+        Logger:log("ui#toggle_sub_project_menu#closing")
+        if self.settings.save_on_toggle and self._menu_type == "sub_project" then
+            self:save_sub_projects()
+        end
+        self:close_menu()
+        return
+    end
+
+    Logger:log("ui#toggle_sub_project_menu#opening")
+
+    -- Build callbacks for the sub-project buffer
+    local sub_callbacks = {
+        on_select = function()
+            self:select_sub_project_item()
+        end,
+        on_toggle = function(key)
+            Logger:log("sub_project_ui toggle by '" .. key .. "'")
+            self:toggle_sub_project_menu(nil)
+        end,
+        on_save = function()
+            self:save_sub_projects()
+            vim.schedule(function()
+                Logger:log("sub_project_ui toggle by BufWriteCmd")
+                self:toggle_sub_project_menu(nil)
+            end)
+        end,
+    }
+
+    local win_id, bufnr = self:_create_window(opts, sub_callbacks)
+
+    self.win_id = win_id
+    self.bufnr = bufnr
+    self._menu_type = "sub_project"
+    self._sub_project_harpoon = harpoon_instance
+
+    -- Get sorted sub-project names and populate the buffer
+    local projects = harpoon_instance:find_sub_projects()
+    table.sort(projects)
+    self._sub_project_original = vim.deepcopy(projects)
+
+    vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, projects)
+
+    Extensions.extensions:emit(
+        Extensions.event_names.SUB_PROJECT_UI_CREATE,
+        {
+            win_id = win_id,
+            bufnr = bufnr,
+            contents = projects,
+        }
+    )
+end
+
+--- Called when the user presses <CR> in the sub-project picker.
+--- Switches to the sub-project under the cursor and closes the menu.
+function HarpoonUI:select_sub_project_item()
+    local idx = vim.fn.line(".")
+    local lines = Buffer.get_contents(self.bufnr)
+    local name = lines[idx]
+
+    Logger:log("ui#select_sub_project_item", name)
+
+    local harpoon_inst = self._sub_project_harpoon
+    self:close_menu()
+
+    if name and name ~= "" then
+        harpoon_inst:set_sub_project(name)
+    end
+end
+
+--- Called when the user saves (:w) the sub-project picker buffer.
+--- Reconciles the buffer contents against the original sub-project list:
+--- deleted lines = delete sub-project, new lines = create sub-project.
+function HarpoonUI:save_sub_projects()
+    local lines = Buffer.get_contents(self.bufnr)
+
+    Logger:log("ui#save_sub_projects", lines)
+
+    local harpoon_inst = self._sub_project_harpoon
+    if not harpoon_inst then
+        return
+    end
+
+    harpoon_inst:resolve_sub_projects(lines, self._sub_project_original)
+
+    -- Update the original snapshot to the new state
+    local updated = harpoon_inst:find_sub_projects()
+    table.sort(updated)
+    self._sub_project_original = updated
 end
 
 return HarpoonUI

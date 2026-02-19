@@ -186,6 +186,10 @@ function Harpoon:set_sub_project(name)
     self.active_sub_project = name
     self:_save_active_sub_project(name)
 
+    self._extensions:emit(Extensions.event_names.SUB_PROJECT_CHANGED, {
+        name = name,
+    })
+
     Log:log("sub_project#set", "switched to:", name or "<default>")
 end
 
@@ -234,6 +238,53 @@ function Harpoon:delete_sub_project(name)
     end
 
     Log:log("sub_project#delete", "deleted sub-project:", name)
+end
+
+--- Reconciles the user's edits in the sub-project picker buffer back to the
+--- data store. This is the sub-project equivalent of HarpoonList:resolve_displayed().
+---
+--- For each name in original that is NOT in displayed: delete the sub-project.
+--- For each name in displayed that is NOT in original: create the sub-project
+--- (ensure its key exists in the data store).
+---@param displayed string[]   lines from the sub-project buffer
+---@param original string[]    the sub-project names when the menu was opened
+function Harpoon:resolve_sub_projects(displayed, original)
+    local utils = require("harpoon.utils")
+
+    -- Build lookup sets
+    local displayed_set = {}
+    local displayed_clean = {}
+    for _, name in ipairs(displayed) do
+        if not utils.is_white_space(name) then
+            displayed_set[name] = true
+            table.insert(displayed_clean, name)
+        end
+    end
+
+    local original_set = {}
+    for _, name in ipairs(original) do
+        original_set[name] = true
+    end
+
+    -- Delete sub-projects that were removed from the buffer
+    for _, name in ipairs(original) do
+        if not displayed_set[name] then
+            -- Use pcall because delete_sub_project guards against deleting default
+            pcall(function()
+                self:delete_sub_project(name)
+            end)
+        end
+    end
+
+    -- Create sub-projects that were added in the buffer
+    for _, name in ipairs(displayed_clean) do
+        if not original_set[name] then
+            -- Touch the key in the data store to create it
+            self.data:data(name, Config.DEFAULT_LIST)
+            self.data:sync()
+            Log:log("sub_project#create_from_ui", "created:", name)
+        end
+    end
 end
 
 local the_harpoon = Harpoon:new()

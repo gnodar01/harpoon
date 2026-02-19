@@ -13,6 +13,8 @@ local HarpoonExtensions = {}
 ---@field LIST_READ? fun(...): nil
 ---@field NAVIGATE? fun(...): nil
 ---@field POSITION_UPDATED? fun(...): nil
+---@field SUB_PROJECT_CHANGED? fun(...): nil
+---@field SUB_PROJECT_UI_CREATE? fun(...): nil
 
 HarpoonExtensions.__index = HarpoonExtensions
 
@@ -107,5 +109,7 @@ return {
         LIST_CREATED = "LIST_CREATED",
         NAVIGATE = "NAVIGATE",
         LIST_READ = "LIST_READ",
+        SUB_PROJECT_CHANGED = "SUB_PROJECT_CHANGED",
+        SUB_PROJECT_UI_CREATE = "SUB_PROJECT_UI_CREATE",
     },
 }

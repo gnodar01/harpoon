@@ -27,8 +27,36 @@ function M.run_toggle_command(key)
     harpoon.ui:toggle_quick_menu()
 end
 
+---@class HarpoonBufferCallbacks
+---@field on_select fun()            called on <CR>
+---@field on_toggle fun(key: string) called on q, Esc, BufLeave
+---@field on_save fun()              called on :w (BufWriteCmd)
+
+--- Returns the default callbacks that preserve the original file-list behavior.
+---@return HarpoonBufferCallbacks
+function M.default_callbacks()
+    return {
+        on_select = function()
+            M.run_select_command()
+        end,
+        on_toggle = function(key)
+            M.run_toggle_command(key)
+        end,
+        on_save = function()
+            require("harpoon").ui:save()
+            vim.schedule(function()
+                require("harpoon").logger:log("toggle by BufWriteCmd")
+                require("harpoon").ui:toggle_quick_menu()
+            end)
+        end,
+    }
+end
+
 ---@param bufnr number
-function M.setup_autocmds_and_keymaps(bufnr)
+---@param callbacks? HarpoonBufferCallbacks
+function M.setup_autocmds_and_keymaps(bufnr, callbacks)
+    callbacks = callbacks or M.default_callbacks()
+
     local curr_file = vim.api.nvim_buf_get_name(0)
     local cmd = string.format(
         "autocmd Filetype harpoon "
@@ -50,26 +78,22 @@ function M.setup_autocmds_and_keymaps(bufnr)
     })
     vim.api.nvim_set_option_value("buftype", "acwrite", { buf = bufnr })
     vim.keymap.set("n", "q", function()
-        M.run_toggle_command("q")
+        callbacks.on_toggle("q")
     end, { buffer = bufnr, silent = true })
 
     vim.keymap.set("n", "<Esc>", function()
-        M.run_toggle_command("Esc")
+        callbacks.on_toggle("Esc")
     end, { buffer = bufnr, silent = true })
 
     vim.keymap.set("n", "<CR>", function()
-        M.run_select_command()
+        callbacks.on_select()
     end, { buffer = bufnr, silent = true })
 
     vim.api.nvim_create_autocmd({ "BufWriteCmd" }, {
         group = HarpoonGroup,
         buffer = bufnr,
         callback = function()
-            require("harpoon").ui:save()
-            vim.schedule(function()
-                require("harpoon").logger:log("toggle by BufWriteCmd")
-                require("harpoon").ui:toggle_quick_menu()
-            end)
+            callbacks.on_save()
         end,
     })
 
@@ -77,8 +101,7 @@ function M.setup_autocmds_and_keymaps(bufnr)
         group = HarpoonGroup,
         buffer = bufnr,
         callback = function()
-            require("harpoon").logger:log("toggle by BufLeave")
-            require("harpoon").ui:toggle_quick_menu()
+            callbacks.on_toggle("BufLeave")
         end,
     })
 end
