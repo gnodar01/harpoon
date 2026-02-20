@@ -270,9 +270,13 @@ function HarpoonUI:toggle_sub_project_menu(harpoon_instance, opts)
     self._menu_type = "sub_project"
     self._sub_project_harpoon = harpoon_instance
 
-    -- Get sorted sub-project names and populate the buffer
-    local projects = harpoon_instance:find_sub_projects()
-    table.sort(projects)
+    -- Get sub-project names in persisted display order, with <default> first
+    local ordered = harpoon_instance:find_sub_projects_ordered()
+    local display_name = harpoon_instance.DEFAULT_SUB_PROJECT_DISPLAY
+    local projects = { display_name }
+    for _, name in ipairs(ordered) do
+        table.insert(projects, name)
+    end
     self._sub_project_original = vim.deepcopy(projects)
 
     vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, projects)
@@ -286,6 +290,7 @@ end
 
 --- Called when the user presses <CR> in the sub-project picker.
 --- Switches to the sub-project under the cursor and closes the menu.
+--- Selecting "<default>" switches back to the default project context.
 function HarpoonUI:select_sub_project_item()
     local idx = vim.fn.line(".")
     local lines = Buffer.get_contents(self.bufnr)
@@ -297,13 +302,19 @@ function HarpoonUI:select_sub_project_item()
     self:close_menu()
 
     if name and name ~= "" then
-        harpoon_inst:set_sub_project(name)
+        local display_name = harpoon_inst.DEFAULT_SUB_PROJECT_DISPLAY
+        if name == display_name then
+            harpoon_inst:set_sub_project(nil)
+        else
+            harpoon_inst:set_sub_project(name)
+        end
     end
 end
 
 --- Called when the user saves (:w) the sub-project picker buffer.
 --- Reconciles the buffer contents against the original sub-project list:
 --- deleted lines = delete sub-project, new lines = create sub-project.
+--- The display order is persisted by resolve_sub_projects.
 function HarpoonUI:save_sub_projects()
     local lines = Buffer.get_contents(self.bufnr)
 
@@ -316,9 +327,13 @@ function HarpoonUI:save_sub_projects()
 
     harpoon_inst:resolve_sub_projects(lines, self._sub_project_original)
 
-    -- Update the original snapshot to the new state
-    local updated = harpoon_inst:find_sub_projects()
-    table.sort(updated)
+    -- Update the original snapshot to the new state (ordered, with <default>)
+    local display_name = harpoon_inst.DEFAULT_SUB_PROJECT_DISPLAY
+    local ordered = harpoon_inst:find_sub_projects_ordered()
+    local updated = { display_name }
+    for _, name in ipairs(ordered) do
+        table.insert(updated, name)
+    end
     self._sub_project_original = updated
 end
 

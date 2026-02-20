@@ -216,7 +216,11 @@ describe("harpoon sub-project ui", function()
         harpoon = require("harpoon")
     end)
 
-    it("open sub-project menu with no sub-projects", function()
+    local function default_name()
+        return harpoon.DEFAULT_SUB_PROJECT_DISPLAY
+    end
+
+    it("open sub-project menu with no sub-projects shows <default>", function()
         harpoon.ui:toggle_sub_project_menu(harpoon)
 
         local bufnr = harpoon.ui.bufnr
@@ -225,9 +229,9 @@ describe("harpoon sub-project ui", function()
         eq(vim.api.nvim_buf_is_valid(bufnr), true)
         eq(vim.api.nvim_win_is_valid(win_id), true)
 
-        -- Buffer should be empty (no sub-projects)
+        -- Buffer should only contain <default>
         local contents = Buffer.get_contents(bufnr)
-        eq({ "" }, contents)
+        eq({ default_name() }, contents)
 
         harpoon.ui:toggle_sub_project_menu(nil)
 
@@ -252,13 +256,17 @@ describe("harpoon sub-project ui", function()
         harpoon.ui:toggle_sub_project_menu(harpoon)
 
         local contents = Buffer.get_contents(harpoon.ui.bufnr)
-        table.sort(contents)
-        eq({ "alpha", "beta" }, contents)
+        -- <default> is always first; sub-projects follow in order
+        eq(default_name(), contents[1])
+        -- The remaining entries should contain alpha and beta
+        local rest = { contents[2], contents[3] }
+        table.sort(rest)
+        eq({ "alpha", "beta" }, rest)
 
         harpoon.ui:toggle_sub_project_menu(nil)
     end)
 
-    it("delete sub-project from UI", function()
+    it("delete sub-project from UI (keeping <default>)", function()
         -- Create a sub-project
         harpoon:set_sub_project("to-delete")
         local f = os.tmpname()
@@ -268,9 +276,10 @@ describe("harpoon sub-project ui", function()
 
         eq(1, #harpoon:find_sub_projects())
 
-        -- Open the sub-project menu and remove the line
+        -- Open the sub-project menu and remove the sub-project line,
+        -- keeping only <default>
         harpoon.ui:toggle_sub_project_menu(harpoon)
-        Buffer.set_contents(harpoon.ui.bufnr, {})
+        Buffer.set_contents(harpoon.ui.bufnr, { default_name() })
         harpoon.ui:save_sub_projects()
         harpoon.ui:toggle_sub_project_menu(nil)
 
@@ -281,13 +290,35 @@ describe("harpoon sub-project ui", function()
         eq(0, #harpoon:find_sub_projects())
 
         harpoon.ui:toggle_sub_project_menu(harpoon)
-        Buffer.set_contents(harpoon.ui.bufnr, { "new-project" })
+        Buffer.set_contents(
+            harpoon.ui.bufnr,
+            { default_name(), "new-project" }
+        )
         harpoon.ui:save_sub_projects()
         harpoon.ui:toggle_sub_project_menu(nil)
 
         local projects = harpoon:find_sub_projects()
         eq(1, #projects)
         eq("new-project", projects[1])
+    end)
+
+    it("select <default> from UI switches to default context", function()
+        -- Start in a sub-project
+        harpoon:set_sub_project("my-feature")
+        local f = os.tmpname()
+        utils.create_file(f, { "test" }, 1, 0)
+        harpoon:list():add()
+
+        eq("my-feature", harpoon.active_sub_project)
+
+        harpoon.ui:toggle_sub_project_menu(harpoon)
+
+        -- <default> is line 1
+        vim.api.nvim_win_set_cursor(harpoon.ui.win_id, { 1, 0 })
+        harpoon.ui:select_sub_project_item()
+
+        eq(nil, harpoon.active_sub_project)
+        eq(nil, harpoon.ui.win_id)
     end)
 
     it("select sub-project from UI switches context", function()
@@ -302,8 +333,8 @@ describe("harpoon sub-project ui", function()
 
         harpoon.ui:toggle_sub_project_menu(harpoon)
 
-        -- Move cursor to line 1 and select
-        vim.api.nvim_win_set_cursor(harpoon.ui.win_id, { 1, 0 })
+        -- line 1 = <default>, line 2 = my-feature
+        vim.api.nvim_win_set_cursor(harpoon.ui.win_id, { 2, 0 })
         harpoon.ui:select_sub_project_item()
 
         eq("my-feature", harpoon.active_sub_project)
@@ -320,7 +351,10 @@ describe("harpoon sub-project ui", function()
         harpoon:set_sub_project(nil)
 
         harpoon.ui:toggle_sub_project_menu(harpoon)
-        Buffer.set_contents(harpoon.ui.bufnr, { "new-name" })
+        Buffer.set_contents(
+            harpoon.ui.bufnr,
+            { default_name(), "new-name" }
+        )
         harpoon.ui:save_sub_projects()
         harpoon.ui:toggle_sub_project_menu(nil)
 
@@ -363,5 +397,55 @@ describe("harpoon sub-project ui", function()
         eq(vim.api.nvim_win_is_valid(win_id), false)
         eq(harpoon.ui.bufnr, nil)
         eq(harpoon.ui.win_id, nil)
+    end)
+
+    it("sub-project display order is preserved across menu reopens", function()
+        -- Create sub-projects
+        harpoon:set_sub_project("charlie")
+        local f1 = os.tmpname()
+        utils.create_file(f1, { "test" }, 1, 0)
+        harpoon:list():add()
+
+        harpoon:set_sub_project("alice")
+        local f2 = os.tmpname()
+        utils.create_file(f2, { "test" }, 1, 0)
+        harpoon:list():add()
+
+        harpoon:set_sub_project(nil)
+
+        -- Open menu and set a specific order: <default>, alice, charlie
+        harpoon.ui:toggle_sub_project_menu(harpoon)
+        Buffer.set_contents(
+            harpoon.ui.bufnr,
+            { default_name(), "alice", "charlie" }
+        )
+        harpoon.ui:save_sub_projects()
+        harpoon.ui:toggle_sub_project_menu(nil)
+
+        -- Reopen menu and verify order is preserved
+        harpoon.ui:toggle_sub_project_menu(harpoon)
+        local contents = Buffer.get_contents(harpoon.ui.bufnr)
+        eq({ default_name(), "alice", "charlie" }, contents)
+        harpoon.ui:toggle_sub_project_menu(nil)
+    end)
+
+    it("deleting <default> from buffer does not delete the default project", function()
+        harpoon:set_sub_project("keep-this")
+        local f = os.tmpname()
+        utils.create_file(f, { "test" }, 1, 0)
+        harpoon:list():add()
+        harpoon:set_sub_project(nil)
+
+        -- Open menu and remove <default> line, keeping only sub-project
+        harpoon.ui:toggle_sub_project_menu(harpoon)
+        Buffer.set_contents(harpoon.ui.bufnr, { "keep-this" })
+        harpoon.ui:save_sub_projects()
+        harpoon.ui:toggle_sub_project_menu(nil)
+
+        -- Sub-project should still exist, and default should be unaffected
+        eq(1, #harpoon:find_sub_projects())
+        -- Default context should still work
+        harpoon:set_sub_project(nil)
+        eq("testies", harpoon:get_current_key())
     end)
 end)

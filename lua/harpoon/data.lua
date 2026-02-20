@@ -51,6 +51,7 @@ end
 --- @alias HarpoonRawData {[string]: {[string]: string[]}}
 
 local ACTIVE_SUB_PROJECT_KEY = "__harpoon_active_sub_project"
+local SUB_PROJECT_ORDER_KEY = "__harpoon_sub_project_order"
 
 --- @class HarpoonData
 --- @field _data HarpoonRawData
@@ -185,6 +186,7 @@ end
 
 M.Data = Data
 M.ACTIVE_SUB_PROJECT_KEY = ACTIVE_SUB_PROJECT_KEY
+M.SUB_PROJECT_ORDER_KEY = SUB_PROJECT_ORDER_KEY
 M.test = {
     set_fullpath = function(fp)
         fullpath = fp

@@ -46,7 +46,8 @@ persists across Neovim sessions.
 {
   "/home/user/my-project": {
     "__harpoon_files": ["..."],
-    "__harpoon_active_sub_project": "feature-branch-a"
+    "__harpoon_active_sub_project": "feature-branch-a",
+    "__harpoon_sub_project_order": ["feature-branch-a", "bugfix-y"]
   },
   "feature-branch-a": {
     "__harpoon_files": ["..."]
@@ -58,11 +59,15 @@ persists across Neovim sessions.
 ```
 
 - The **default project key** (absolute path) stores the default context's
-  lists and the `__harpoon_active_sub_project` metadata field.
+  lists and two metadata fields:
+  - `__harpoon_active_sub_project`: a string (the name of the active
+    sub-project) or absent/null (meaning default context is active).
+  - `__harpoon_sub_project_order`: an ordered JSON array of sub-project names,
+    representing the user's chosen display order in the picker menu.
 - **Sub-project keys** are plain string names chosen by the user. They are
   siblings at the top level.
-- The `__harpoon_active_sub_project` metadata value is a string (the name of
-  the active sub-project) or absent/null (meaning default context is active).
+- The sub-project picker UI always shows `"<default>"` as the first entry.
+  This is a display-only name; the actual data key remains the absolute path.
 
 ### Files Changed
 
@@ -112,13 +117,36 @@ harpoon:set_sub_project(nil)  -- back to default
 
 #### `harpoon:find_sub_projects()`
 
-Returns a list of all sub-project names for the current project.
+Returns a list of all sub-project names for the current project (unordered).
 
 - **Returns:** `string[]`
 
 ```lua
 local projects = harpoon:find_sub_projects()
 -- { "feature-auth", "bugfix-123" }
+```
+
+#### `harpoon:find_sub_projects_ordered()`
+
+Returns sub-project names in their persisted display order. Any sub-projects
+that exist in the data but are missing from the stored order are appended
+at the end.
+
+- **Returns:** `string[]`
+
+```lua
+local ordered = harpoon:find_sub_projects_ordered()
+-- { "bugfix-123", "feature-auth" }  -- in the order the user arranged them
+```
+
+#### `harpoon.DEFAULT_SUB_PROJECT_DISPLAY`
+
+The display name used to represent the default project in the sub-project
+picker menu. Value: `"<default>"`.
+
+```lua
+local name = harpoon.DEFAULT_SUB_PROJECT_DISPLAY
+-- "<default>"
 ```
 
 #### `harpoon:delete_sub_project(name)`
@@ -154,11 +182,18 @@ Opens (or closes) the sub-project picker floating window. Behaves like
 - **`opts`** (`HarpoonToggleOptions?`): Same options as `toggle_quick_menu`.
   Defaults title to `"Sub-Projects"`.
 
+The menu always shows `"<default>"` as the first line. Sub-projects follow
+in their persisted display order (edit order is preserved across sessions).
+
 The user can:
-- **Delete** sub-projects by deleting lines (`dd`).
+- **Delete** sub-projects by deleting lines (`dd`). Deleting `"<default>"` is
+  a no-op (the default project cannot be deleted).
 - **Add** sub-projects by typing new names on new lines (`o<name>`).
 - **Rename** sub-projects by editing a line in place.
+- **Reorder** sub-projects by moving lines (`ddp`, etc.). The order is
+  persisted on save.
 - **Select** a sub-project by pressing `<CR>` (switches context and closes).
+  Selecting `"<default>"` switches back to the default project context.
 - **Save** with `:w` (persists changes and closes).
 - **Dismiss** with `q`, `<Esc>`, `<C-w>` (discards changes).
 
@@ -329,18 +364,21 @@ existing data into a sub-project, you can do so by hand:
 | persists active sub-project across reload | Metadata survives data reload |
 | each sub-project supports its own named lists | Custom list names (not just default) are isolated |
 
-**`lua/harpoon/test/ui_spec.lua`** -- 8 new sub-project UI tests added:
+**`lua/harpoon/test/ui_spec.lua`** -- 11 sub-project UI tests added:
 
 | Test | What it verifies |
 |------|-----------------|
-| open sub-project menu with no sub-projects | Opens empty buffer, closes cleanly |
-| open sub-project menu with existing sub-projects | Buffer shows one name per line |
-| delete sub-project from UI | Remove a line, save, verify deletion |
-| add sub-project from UI | Add a line, save, verify creation |
-| select sub-project from UI switches context | `<CR>` calls `set_sub_project`, closes menu |
+| open sub-project menu with no sub-projects shows `<default>` | Buffer contains only `<default>`, closes cleanly |
+| open sub-project menu with existing sub-projects | `<default>` first, then sub-projects |
+| delete sub-project from UI (keeping `<default>`) | Remove a sub-project line, save, verify deletion |
+| add sub-project from UI | Add a line after `<default>`, save, verify creation |
+| select `<default>` from UI switches to default context | `<CR>` on `<default>` calls `set_sub_project(nil)` |
+| select sub-project from UI switches context | `<CR>` on line 2 calls `set_sub_project(name)`, closes menu |
 | edit (rename) sub-project from UI | Change a line, save, verify old deleted and new created |
 | toggle without save discards changes | Edit buffer, close without `:w`, verify no changes |
 | close sub-project menu with q | Menu closes and state is cleaned up |
+| sub-project display order is preserved across menu reopens | Set order, save, reopen, verify same order |
+| deleting `<default>` from buffer does not delete the default project | Remove `<default>` line, save, default context still works |
 
 ### Running Tests
 
@@ -364,7 +402,7 @@ To confirm no regressions, run the full test suite and verify:
 - `list_spec.lua`: 9/9 pass
 - `harpoon_spec.lua`: 2 pass, 5 fail (pre-existing macOS symlink issue)
 - `config_spec.lua`: 0 pass, 1 fail (pre-existing macOS symlink issue)
-- `ui_spec.lua`: 17 pass, 2 fail (pre-existing macOS symlink issue)
+- `ui_spec.lua`: 20 pass, 2 fail (pre-existing macOS symlink issue)
 - `sub_project_spec.lua`: 13/13 pass
 
 The pass/fail counts for pre-existing tests should be identical before and

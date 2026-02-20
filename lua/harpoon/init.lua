@@ -19,6 +19,9 @@ local Harpoon = {}
 
 Harpoon.__index = Harpoon
 
+--- The display name used to represent the default project in the sub-project menu.
+local DEFAULT_SUB_PROJECT_DISPLAY = "<default>"
+
 ---@param harpoon Harpoon
 local function sync_on_change(harpoon)
     local function sync(_)
@@ -175,6 +178,60 @@ function Harpoon:_restore_active_sub_project()
     end
 end
 
+--- Returns the persisted display order of sub-projects.
+--- Falls back to an empty list if no order has been saved yet.
+---@return string[]
+function Harpoon:_get_sub_project_order()
+    local default_key = self.config.settings.key()
+    local stored = self.data:data(default_key, Data.SUB_PROJECT_ORDER_KEY)
+    if stored and type(stored) == "table" then
+        return stored
+    end
+    return {}
+end
+
+--- Persists the display order of sub-projects.
+---@param order string[]
+function Harpoon:_save_sub_project_order(order)
+    local default_key = self.config.settings.key()
+    self.data:update(default_key, Data.SUB_PROJECT_ORDER_KEY, order)
+    self.data:sync()
+end
+
+--- Returns sub-project names in their persisted display order.
+--- Any sub-projects that exist in the data but are missing from the stored
+--- order are appended at the end.
+---@return string[]
+function Harpoon:find_sub_projects_ordered()
+    local all = self:find_sub_projects()
+    local order = self:_get_sub_project_order()
+
+    -- Build a set of all existing sub-project names
+    local exists = {}
+    for _, name in ipairs(all) do
+        exists[name] = true
+    end
+
+    -- Start with the stored order, keeping only entries that still exist
+    local result = {}
+    local seen = {}
+    for _, name in ipairs(order) do
+        if exists[name] and not seen[name] then
+            table.insert(result, name)
+            seen[name] = true
+        end
+    end
+
+    -- Append any sub-projects that exist but aren't in the stored order
+    for _, name in ipairs(all) do
+        if not seen[name] then
+            table.insert(result, name)
+        end
+    end
+
+    return result
+end
+
 --- Switch the active sub-project context. All subsequent list() calls will
 --- operate on the sub-project's data. Pass nil to return to the default
 --- project context.
@@ -231,6 +288,16 @@ function Harpoon:delete_sub_project(name)
     self.data:clear_key(name)
     self.data:sync()
 
+    -- Remove from the persisted display order
+    local order = self:_get_sub_project_order()
+    local new_order = {}
+    for _, entry in ipairs(order) do
+        if entry ~= name then
+            table.insert(new_order, entry)
+        end
+    end
+    self:_save_sub_project_order(new_order)
+
     -- If we just deleted the active sub-project, revert to default
     if self.active_sub_project == name then
         self.active_sub_project = nil
@@ -246,16 +313,21 @@ end
 --- For each name in original that is NOT in displayed: delete the sub-project.
 --- For each name in displayed that is NOT in original: create the sub-project
 --- (ensure its key exists in the data store).
+--- The "<default>" entry is always ignored (it cannot be created or deleted).
+--- The final buffer order (excluding "<default>") is persisted as the display order.
 ---@param displayed string[]   lines from the sub-project buffer
 ---@param original string[]    the sub-project names when the menu was opened
 function Harpoon:resolve_sub_projects(displayed, original)
     local utils = require("harpoon.utils")
 
-    -- Build lookup sets
+    -- Build lookup sets, filtering out <default> and whitespace
     local displayed_set = {}
     local displayed_clean = {}
     for _, name in ipairs(displayed) do
-        if not utils.is_white_space(name) then
+        if
+            not utils.is_white_space(name)
+            and name ~= DEFAULT_SUB_PROJECT_DISPLAY
+        then
             displayed_set[name] = true
             table.insert(displayed_clean, name)
         end
@@ -263,12 +335,14 @@ function Harpoon:resolve_sub_projects(displayed, original)
 
     local original_set = {}
     for _, name in ipairs(original) do
-        original_set[name] = true
+        if name ~= DEFAULT_SUB_PROJECT_DISPLAY then
+            original_set[name] = true
+        end
     end
 
     -- Delete sub-projects that were removed from the buffer
     for _, name in ipairs(original) do
-        if not displayed_set[name] then
+        if name ~= DEFAULT_SUB_PROJECT_DISPLAY and not displayed_set[name] then
             -- Use pcall because delete_sub_project guards against deleting default
             pcall(function()
                 self:delete_sub_project(name)
@@ -285,6 +359,9 @@ function Harpoon:resolve_sub_projects(displayed, original)
             Log:log("sub_project#create_from_ui", "created:", name)
         end
     end
+
+    -- Persist the display order (excluding <default>)
+    self:_save_sub_project_order(displayed_clean)
 end
 
 local the_harpoon = Harpoon:new()
@@ -333,5 +410,7 @@ function Harpoon.setup(self, partial_config)
 
     return self
 end
+
+Harpoon.DEFAULT_SUB_PROJECT_DISPLAY = DEFAULT_SUB_PROJECT_DISPLAY
 
 return the_harpoon
