@@ -22,6 +22,9 @@ Harpoon.__index = Harpoon
 --- The display name used to represent the default project in the sub-project menu.
 local DEFAULT_SUB_PROJECT_DISPLAY = "<default>"
 
+--- Prefix prepended to the active sub-project's line in the picker menu.
+local ACTIVE_SUB_PROJECT_PREFIX = "> "
+
 ---@param harpoon Harpoon
 local function sync_on_change(harpoon)
     local function sync(_)
@@ -412,5 +415,6 @@ function Harpoon.setup(self, partial_config)
 end
 
 Harpoon.DEFAULT_SUB_PROJECT_DISPLAY = DEFAULT_SUB_PROJECT_DISPLAY
+Harpoon.ACTIVE_SUB_PROJECT_PREFIX = ACTIVE_SUB_PROJECT_PREFIX
 
 return the_harpoon

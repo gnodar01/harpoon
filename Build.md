@@ -149,6 +149,16 @@ local name = harpoon.DEFAULT_SUB_PROJECT_DISPLAY
 -- "<default>"
 ```
 
+#### `harpoon.ACTIVE_SUB_PROJECT_PREFIX`
+
+The prefix prepended to the active sub-project's line in the picker menu.
+Value: `"> "`. Change this constant to customize the indicator.
+
+```lua
+local pfx = harpoon.ACTIVE_SUB_PROJECT_PREFIX
+-- "> "
+```
+
 #### `harpoon:delete_sub_project(name)`
 
 Deletes a sub-project and all of its lists from the data store.
@@ -184,6 +194,9 @@ Opens (or closes) the sub-project picker floating window. Behaves like
 
 The menu always shows `"<default>"` as the first line. Sub-projects follow
 in their persisted display order (edit order is preserved across sessions).
+The currently active sub-project (or `"<default>"` if none) is prefixed
+with `"> "` to indicate which context is active. The prefix is defined by
+`harpoon.ACTIVE_SUB_PROJECT_PREFIX` and can be customized.
 
 The user can:
 - **Delete** sub-projects by deleting lines (`dd`). Deleting `"<default>"` is
@@ -364,7 +377,7 @@ existing data into a sub-project, you can do so by hand:
 | persists active sub-project across reload | Metadata survives data reload |
 | each sub-project supports its own named lists | Custom list names (not just default) are isolated |
 
-**`lua/harpoon/test/ui_spec.lua`** -- 11 sub-project UI tests added:
+**`lua/harpoon/test/ui_spec.lua`** -- 13 sub-project UI tests added:
 
 | Test | What it verifies |
 |------|-----------------|
@@ -373,7 +386,9 @@ existing data into a sub-project, you can do so by hand:
 | delete sub-project from UI (keeping `<default>`) | Remove a sub-project line, save, verify deletion |
 | add sub-project from UI | Add a line after `<default>`, save, verify creation |
 | select `<default>` from UI switches to default context | `<CR>` on `<default>` calls `set_sub_project(nil)` |
-| select sub-project from UI switches context | `<CR>` on line 2 calls `set_sub_project(name)`, closes menu |
+| active sub-project is prefixed in the menu | Active entry shown with `"> "` prefix, others without |
+| select prefixed sub-project from UI switches context | `<CR>` on prefixed line strips prefix and switches |
+| select unprefixed sub-project from UI switches context | `<CR>` on unprefixed line switches normally |
 | edit (rename) sub-project from UI | Change a line, save, verify old deleted and new created |
 | toggle without save discards changes | Edit buffer, close without `:w`, verify no changes |
 | close sub-project menu with q | Menu closes and state is cleaned up |
@@ -402,7 +417,7 @@ To confirm no regressions, run the full test suite and verify:
 - `list_spec.lua`: 9/9 pass
 - `harpoon_spec.lua`: 2 pass, 5 fail (pre-existing macOS symlink issue)
 - `config_spec.lua`: 0 pass, 1 fail (pre-existing macOS symlink issue)
-- `ui_spec.lua`: 20 pass, 2 fail (pre-existing macOS symlink issue)
+- `ui_spec.lua`: 22 pass, 2 fail (pre-existing macOS symlink issue)
 - `sub_project_spec.lua`: 13/13 pass
 
 The pass/fail counts for pre-existing tests should be identical before and

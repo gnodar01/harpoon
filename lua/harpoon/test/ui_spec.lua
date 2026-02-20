@@ -220,6 +220,10 @@ describe("harpoon sub-project ui", function()
         return harpoon.DEFAULT_SUB_PROJECT_DISPLAY
     end
 
+    local function prefix()
+        return harpoon.ACTIVE_SUB_PROJECT_PREFIX
+    end
+
     it("open sub-project menu with no sub-projects shows <default>", function()
         harpoon.ui:toggle_sub_project_menu(harpoon)
 
@@ -229,9 +233,9 @@ describe("harpoon sub-project ui", function()
         eq(vim.api.nvim_buf_is_valid(bufnr), true)
         eq(vim.api.nvim_win_is_valid(win_id), true)
 
-        -- Buffer should only contain <default>
+        -- Buffer should only contain <default> with active prefix
         local contents = Buffer.get_contents(bufnr)
-        eq({ default_name() }, contents)
+        eq({ prefix() .. default_name() }, contents)
 
         harpoon.ui:toggle_sub_project_menu(nil)
 
@@ -256,12 +260,31 @@ describe("harpoon sub-project ui", function()
         harpoon.ui:toggle_sub_project_menu(harpoon)
 
         local contents = Buffer.get_contents(harpoon.ui.bufnr)
-        -- <default> is always first; sub-projects follow in order
-        eq(default_name(), contents[1])
-        -- The remaining entries should contain alpha and beta
+        -- <default> is active (prefixed), sub-projects are not
+        eq(prefix() .. default_name(), contents[1])
+        -- The remaining entries should contain alpha and beta (unprefixed)
         local rest = { contents[2], contents[3] }
         table.sort(rest)
         eq({ "alpha", "beta" }, rest)
+
+        harpoon.ui:toggle_sub_project_menu(nil)
+    end)
+
+    it("active sub-project is prefixed in the menu", function()
+        -- Create a sub-project and stay in it
+        harpoon:set_sub_project("my-feature")
+        local f = os.tmpname()
+        utils.create_file(f, { "test" }, 1, 0)
+        harpoon:list():add()
+
+        -- Open menu while in sub-project context
+        harpoon.ui:toggle_sub_project_menu(harpoon)
+
+        local contents = Buffer.get_contents(harpoon.ui.bufnr)
+        -- <default> is NOT active, so no prefix
+        eq(default_name(), contents[1])
+        -- my-feature IS active, so it gets the prefix
+        eq(prefix() .. "my-feature", contents[2])
 
         harpoon.ui:toggle_sub_project_menu(nil)
     end)
@@ -277,9 +300,12 @@ describe("harpoon sub-project ui", function()
         eq(1, #harpoon:find_sub_projects())
 
         -- Open the sub-project menu and remove the sub-project line,
-        -- keeping only <default>
+        -- keeping only <default> (with prefix since it's active)
         harpoon.ui:toggle_sub_project_menu(harpoon)
-        Buffer.set_contents(harpoon.ui.bufnr, { default_name() })
+        Buffer.set_contents(
+            harpoon.ui.bufnr,
+            { prefix() .. default_name() }
+        )
         harpoon.ui:save_sub_projects()
         harpoon.ui:toggle_sub_project_menu(nil)
 
@@ -292,7 +318,7 @@ describe("harpoon sub-project ui", function()
         harpoon.ui:toggle_sub_project_menu(harpoon)
         Buffer.set_contents(
             harpoon.ui.bufnr,
-            { default_name(), "new-project" }
+            { prefix() .. default_name(), "new-project" }
         )
         harpoon.ui:save_sub_projects()
         harpoon.ui:toggle_sub_project_menu(nil)
@@ -313,7 +339,7 @@ describe("harpoon sub-project ui", function()
 
         harpoon.ui:toggle_sub_project_menu(harpoon)
 
-        -- <default> is line 1
+        -- <default> is line 1 (unprefixed since sub-project is active)
         vim.api.nvim_win_set_cursor(harpoon.ui.win_id, { 1, 0 })
         harpoon.ui:select_sub_project_item()
 
@@ -321,7 +347,26 @@ describe("harpoon sub-project ui", function()
         eq(nil, harpoon.ui.win_id)
     end)
 
-    it("select sub-project from UI switches context", function()
+    it("select prefixed sub-project from UI switches context", function()
+        -- Create a sub-project and stay in it
+        harpoon:set_sub_project("my-feature")
+        local f = os.tmpname()
+        utils.create_file(f, { "test" }, 1, 0)
+        harpoon:list():add()
+
+        -- Open menu while active — line 2 will be prefixed
+        harpoon.ui:toggle_sub_project_menu(harpoon)
+
+        -- line 2 = "> my-feature" — selecting it should still work
+        vim.api.nvim_win_set_cursor(harpoon.ui.win_id, { 2, 0 })
+        harpoon.ui:select_sub_project_item()
+
+        eq("my-feature", harpoon.active_sub_project)
+        eq(nil, harpoon.ui.win_id)
+        eq(nil, harpoon.ui.bufnr)
+    end)
+
+    it("select unprefixed sub-project from UI switches context", function()
         -- Create a sub-project
         harpoon:set_sub_project("my-feature")
         local f = os.tmpname()
@@ -333,7 +378,7 @@ describe("harpoon sub-project ui", function()
 
         harpoon.ui:toggle_sub_project_menu(harpoon)
 
-        -- line 1 = <default>, line 2 = my-feature
+        -- line 1 = "> <default>", line 2 = my-feature (unprefixed)
         vim.api.nvim_win_set_cursor(harpoon.ui.win_id, { 2, 0 })
         harpoon.ui:select_sub_project_item()
 
@@ -353,7 +398,7 @@ describe("harpoon sub-project ui", function()
         harpoon.ui:toggle_sub_project_menu(harpoon)
         Buffer.set_contents(
             harpoon.ui.bufnr,
-            { default_name(), "new-name" }
+            { prefix() .. default_name(), "new-name" }
         )
         harpoon.ui:save_sub_projects()
         harpoon.ui:toggle_sub_project_menu(nil)
@@ -413,19 +458,23 @@ describe("harpoon sub-project ui", function()
 
         harpoon:set_sub_project(nil)
 
-        -- Open menu and set a specific order: <default>, alice, charlie
+        -- Open menu and set a specific order
         harpoon.ui:toggle_sub_project_menu(harpoon)
         Buffer.set_contents(
             harpoon.ui.bufnr,
-            { default_name(), "alice", "charlie" }
+            { prefix() .. default_name(), "alice", "charlie" }
         )
         harpoon.ui:save_sub_projects()
         harpoon.ui:toggle_sub_project_menu(nil)
 
-        -- Reopen menu and verify order is preserved
+        -- Reopen menu and verify order is preserved (prefix on active)
         harpoon.ui:toggle_sub_project_menu(harpoon)
         local contents = Buffer.get_contents(harpoon.ui.bufnr)
-        eq({ default_name(), "alice", "charlie" }, contents)
+        eq({
+            prefix() .. default_name(),
+            "alice",
+            "charlie",
+        }, contents)
         harpoon.ui:toggle_sub_project_menu(nil)
     end)
 

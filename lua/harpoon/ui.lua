@@ -35,6 +35,17 @@ local function list_name(list)
     return list and list.name or "nil"
 end
 
+--- Strips the active sub-project prefix from a display line if present.
+---@param line string
+---@param prefix string
+---@return string
+local function strip_active_prefix(line, prefix)
+    if vim.startswith(line, prefix) then
+        return line:sub(#prefix + 1)
+    end
+    return line
+end
+
 HarpoonUI.__index = HarpoonUI
 
 ---@param settings HarpoonSettings
@@ -273,9 +284,22 @@ function HarpoonUI:toggle_sub_project_menu(harpoon_instance, opts)
     -- Get sub-project names in persisted display order, with <default> first
     local ordered = harpoon_instance:find_sub_projects_ordered()
     local display_name = harpoon_instance.DEFAULT_SUB_PROJECT_DISPLAY
-    local projects = { display_name }
+    local prefix = harpoon_instance.ACTIVE_SUB_PROJECT_PREFIX
+    local active = harpoon_instance.active_sub_project
+
+    local projects = {}
+    -- <default> is active when active_sub_project is nil
+    if active == nil then
+        table.insert(projects, prefix .. display_name)
+    else
+        table.insert(projects, display_name)
+    end
     for _, name in ipairs(ordered) do
-        table.insert(projects, name)
+        if name == active then
+            table.insert(projects, prefix .. name)
+        else
+            table.insert(projects, name)
+        end
     end
     self._sub_project_original = vim.deepcopy(projects)
 
@@ -294,14 +318,17 @@ end
 function HarpoonUI:select_sub_project_item()
     local idx = vim.fn.line(".")
     local lines = Buffer.get_contents(self.bufnr)
-    local name = lines[idx]
+    local raw = lines[idx]
+
+    local harpoon_inst = self._sub_project_harpoon
+    local prefix = harpoon_inst.ACTIVE_SUB_PROJECT_PREFIX
+    local name = strip_active_prefix(raw or "", prefix)
 
     Logger:log("ui#select_sub_project_item", name)
 
-    local harpoon_inst = self._sub_project_harpoon
     self:close_menu()
 
-    if name and name ~= "" then
+    if name ~= "" then
         local display_name = harpoon_inst.DEFAULT_SUB_PROJECT_DISPLAY
         if name == display_name then
             harpoon_inst:set_sub_project(nil)
@@ -316,23 +343,48 @@ end
 --- deleted lines = delete sub-project, new lines = create sub-project.
 --- The display order is persisted by resolve_sub_projects.
 function HarpoonUI:save_sub_projects()
-    local lines = Buffer.get_contents(self.bufnr)
-
-    Logger:log("ui#save_sub_projects", lines)
+    local raw_lines = Buffer.get_contents(self.bufnr)
 
     local harpoon_inst = self._sub_project_harpoon
     if not harpoon_inst then
         return
     end
 
-    harpoon_inst:resolve_sub_projects(lines, self._sub_project_original)
+    local prefix = harpoon_inst.ACTIVE_SUB_PROJECT_PREFIX
 
-    -- Update the original snapshot to the new state (ordered, with <default>)
+    -- Strip the active prefix from all lines before reconciliation
+    local lines = {}
+    for _, line in ipairs(raw_lines) do
+        table.insert(lines, strip_active_prefix(line, prefix))
+    end
+
+    -- Also strip the prefix from the original snapshot
+    local original = {}
+    for _, line in ipairs(self._sub_project_original) do
+        table.insert(original, strip_active_prefix(line, prefix))
+    end
+
+    Logger:log("ui#save_sub_projects", lines)
+
+    harpoon_inst:resolve_sub_projects(lines, original)
+
+    -- Update the original snapshot to the new state (ordered, with <default>
+    -- and prefix on the active entry)
     local display_name = harpoon_inst.DEFAULT_SUB_PROJECT_DISPLAY
+    local active = harpoon_inst.active_sub_project
     local ordered = harpoon_inst:find_sub_projects_ordered()
-    local updated = { display_name }
+    local updated = {}
+    if active == nil then
+        table.insert(updated, prefix .. display_name)
+    else
+        table.insert(updated, display_name)
+    end
     for _, name in ipairs(ordered) do
-        table.insert(updated, name)
+        if name == active then
+            table.insert(updated, prefix .. name)
+        else
+            table.insert(updated, name)
+        end
     end
     self._sub_project_original = updated
 end
