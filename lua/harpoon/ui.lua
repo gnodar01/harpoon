@@ -222,7 +222,7 @@ end
 --- Behaves like toggle_quick_menu but displays sub-project names instead of
 --- file paths. The user can add/delete/rename sub-projects by editing lines,
 --- and press <CR> to switch to a sub-project.
----@param harpoon_instance Harpoon
+---@param harpoon_instance Harpoon | nil
 ---@param opts? HarpoonToggleOptions
 function HarpoonUI:toggle_sub_project_menu(harpoon_instance, opts)
     opts = vim.tbl_extend("force", {
@@ -233,7 +233,10 @@ function HarpoonUI:toggle_sub_project_menu(harpoon_instance, opts)
 
     if harpoon_instance == nil or self.win_id ~= nil then
         Logger:log("ui#toggle_sub_project_menu#closing")
-        if self.settings.save_on_toggle and self._menu_type == "sub_project" then
+        if
+            self.settings.save_on_toggle
+            and self._menu_type == "sub_project"
+        then
             self:save_sub_projects()
         end
         self:close_menu()
@@ -274,14 +277,11 @@ function HarpoonUI:toggle_sub_project_menu(harpoon_instance, opts)
 
     vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, projects)
 
-    Extensions.extensions:emit(
-        Extensions.event_names.SUB_PROJECT_UI_CREATE,
-        {
-            win_id = win_id,
-            bufnr = bufnr,
-            contents = projects,
-        }
-    )
+    Extensions.extensions:emit(Extensions.event_names.SUB_PROJECT_UI_CREATE, {
+        win_id = win_id,
+        bufnr = bufnr,
+        contents = projects,
+    })
 end
 
 --- Called when the user presses <CR> in the sub-project picker.
