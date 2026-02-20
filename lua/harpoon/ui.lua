@@ -240,7 +240,7 @@ function HarpoonUI:toggle_sub_project_menu(harpoon_instance, opts)
         ui_fallback_width = 69,
         ui_width_ratio = 0.62569,
     }, opts or {})
-    opts.title = opts.title or "Sub-Projects"
+    opts.title = opts.title or "Harpoons"
 
     if harpoon_instance == nil or self.win_id ~= nil then
         Logger:log("ui#toggle_sub_project_menu#closing")
